@@ -1,9 +1,3 @@
-export enum PlayerStatus {
-  Joined,
-  MadeChoice,
-  OutOfGame,
-}
-
 export enum Choice {
   Rock = 'rock',
   Paper = 'paper',
@@ -15,10 +9,14 @@ export type Game = {
   player2Name: string | null,
   player1ID: string,
   player2ID: string | null,
-  player1Status: PlayerStatus,
-  player2Status: PlayerStatus,
   player1Choice: Choice | null,
   player2Choice: Choice | null,
-  player1Wins: number,
-  player2Wins: number,
+  player1Score: number,
+  player2Score: number,
+}
+
+export enum GameResult {
+  Win = 'win',
+  Loss = 'loss',
+  Draw = 'draw',
 }

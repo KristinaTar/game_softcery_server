@@ -3,7 +3,8 @@ import express from 'express';
 
 const app = express();
 import { Server } from 'socket.io';
-import { Choice, Game, PlayerStatus } from "./types";
+import { Choice, Game, GameResult } from "./types";
+import { getWinnerId } from "./helpers";
 
 const cors = require("cors");
 const { generateId } = require("./helpers");
@@ -30,26 +31,7 @@ const playerGameId: {
 
 io.on("connection", (socket) => {
   console.log(`User Connected ${socket.id}`);
-  socket.on('disconnect', () => {
-    console.log(`User disconnected ${socket.id}`);
-    // broadcast to everyone in game room
 
-    const gameId = playerGameId[socket.id];
-    if (!games[gameId]) return;
-    if (games[gameId].player1ID === socket.id) {
-      games[gameId].player1ID = null;
-      games[gameId].player1Name = null;
-      games[gameId].player1Status = PlayerStatus.OutOfGame;
-    } else if (games[gameId].player2ID === socket.id) {
-      games[gameId].player2ID = null;
-      games[gameId].player2Name = null;
-      games[gameId].player2Status = PlayerStatus.OutOfGame;
-    }
-
-    console.log(`Player ${socket.id} disconnected`);
-
-    io.to(gameId).emit("playerDisconnected");
-  });
   socket.on('createGame', () => {
     let gameId: string;
     do {
@@ -60,14 +42,11 @@ io.on("connection", (socket) => {
       player2Name: null,
       player1ID: null,
       player2ID: null,
-      player1Status: PlayerStatus.OutOfGame,
-      player2Status: PlayerStatus.OutOfGame,
       player1Choice: null,
       player2Choice: null,
-      player1Wins: 0,
-      player2Wins: 0,
+      player1Score: 0,
+      player2Score: 0,
     };
-    playerGameId[socket.id] = gameId;
     socket.emit("gameCreated", gameId);
   });
 
@@ -77,34 +56,117 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (!games[gameId].player1ID && games[gameId].player2ID != socket.id) {
+    if (!games[gameId].player1ID && games[gameId].player2ID !== socket.id) {
       games[gameId].player1ID = socket.id;
       games[gameId].player1Name = playerName;
-      games[gameId].player1Status = PlayerStatus.Joined;
-      socket.join(gameId);
-      console.log(`Player ${socket.id} joined game ${gameId}`);
-    } else if (!games[gameId].player2ID && games[gameId].player1ID != socket.id) {
+      playerGameId[socket.id] = gameId;
+
+      if (games[gameId].player2ID) {
+        socket.to(games[gameId].player2ID).emit('playerJoined', playerName);
+        socket.emit('playerJoined', games[gameId].player2Name);
+      }
+    } else if (!games[gameId].player2ID && games[gameId].player1ID !== socket.id) {
       games[gameId].player2ID = socket.id;
       games[gameId].player2Name = playerName;
-      games[gameId].player2Status = PlayerStatus.Joined;
-      socket.join(gameId);
-      console.log(`Player ${socket.id} joined game ${gameId}`);
+      playerGameId[socket.id] = gameId;
+
+      if (games[gameId].player1ID) {
+        socket.to(games[gameId].player1ID).emit('playerJoined', playerName);
+        socket.emit('playerJoined', games[gameId].player1Name);
+      }
+    } else {
+      // If Player is trying to connect to full game
+      socket.emit("gameIsFull");
     }
   });
 
-  socket.on('madeChoice', (data: { gameId: string, choice: Choice }) => {
-    if(!games[data.gameId]) {
+  socket.on('madeChoice', ({ gameId, choice }: { gameId: string, choice: Choice }) => {
+    if(!games[gameId]) {
       socket.emit("wrongGameId");
       return;
     }
 
-    if (socket.id === games[data.gameId].player1ID) {
-      games[data.gameId].player1Choice = data.choice;
-    } else if (socket.id === games[data.gameId].player2ID) {
-      games[data.gameId].player2Choice = data.choice;
+    if (socket.id === games[gameId].player1ID) {
+      games[gameId].player1Choice = choice;
+      if (!games[gameId].player2Choice) {
+        socket.to(games[gameId].player2ID).emit('opponentMadeChoice');
+      }
+    } else if (socket.id === games[gameId].player2ID) {
+      games[gameId].player2Choice = choice;
+      if (!games[gameId].player1Choice) {
+        socket.to(games[gameId].player1ID).emit('opponentMadeChoice');
+      }
     }
 
-    console.log(games[data.gameId])
+    if (games[gameId].player1Choice && games[gameId].player2Choice) {
+      // select winner
+      const winner = getWinnerId(games[gameId].player1Choice, games[gameId].player2Choice);
+
+      // emit game result
+      let outcome1 = GameResult.Draw;
+      let outcome2 = GameResult.Draw;
+      if (winner === 1) {
+        outcome1 = GameResult.Win;
+        outcome2 = GameResult.Loss;
+        games[gameId].player1Score++;
+      } else if (winner === 2) {
+        outcome1 = GameResult.Loss;
+        outcome2 = GameResult.Win;
+        games[gameId].player2Score++;
+      }
+
+      const player1Data = {
+        outcome: outcome1,
+        playerScore: games[gameId].player1Score,
+        opponentScore: games[gameId].player2Score,
+        yourChoice: games[gameId].player1Choice,
+        opponentChoice: games[gameId].player2Choice,
+      };
+      const player2Data = {
+        outcome: outcome2,
+        playerScore: games[gameId].player2Score,
+        opponentScore: games[gameId].player1Score,
+        yourChoice: games[gameId].player2Choice,
+        opponentChoice: games[gameId].player1Choice,
+      };
+
+      if (socket.id === games[gameId].player1ID) {
+        socket.emit('gameResult', player1Data);
+        socket.to(games[gameId].player2ID).emit('gameResult', player2Data);
+      } else {
+        socket.to(games[gameId].player1ID).emit('gameResult', player1Data);
+        socket.emit('gameResult', player2Data);
+      }
+
+      games[gameId].player1Choice = null;
+      games[gameId].player2Choice = null;
+    }
+  });
+
+  socket.on('disconnect', () => {
+    const gameId = playerGameId[socket.id];
+    if (!gameId || !games[gameId]) return;
+    const game = games[gameId];
+    if (game.player1ID === socket.id) {
+      game.player1ID = null;
+      game.player1Name = null;
+      if (game.player2ID) {
+        socket.to(game.player2ID).emit('opponentDisconnected');
+      }
+    } else if (game.player2ID === socket.id) {
+      game.player2ID = null;
+      game.player2Name = null;
+      if (game.player1ID) {
+        socket.to(game.player1ID).emit('opponentDisconnected');
+      }
+    }
+
+    game.player1Score = 0;
+    game.player2Score = 0;
+    game.player1Choice = null;
+    game.player2Choice = null;
+
+    delete playerGameId[socket.id];
   });
 });
 
