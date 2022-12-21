@@ -1,4 +1,3 @@
-import { Socket } from "socket.io";
 import { Choice } from "./types";
 
 export function generateId(length: number) {

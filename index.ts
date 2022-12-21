@@ -3,7 +3,7 @@ import express from 'express';
 
 const app = express();
 import { Server } from 'socket.io';
-import { Choice, Game, GameResult } from "./types";
+import { Choice, Game, Outcome } from "./types";
 import { getWinnerId } from "./helpers";
 
 const cors = require("cors");
@@ -15,7 +15,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "http://192.168.0.38:3000",
+    origin: "http://192.168.88.120:3000",
     methods: ["GET", "POST"],
   }
 });
@@ -51,6 +51,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on('joinGame', ({ gameId, playerName }: { gameId: string, playerName: string }) => {
+    console.log(`${socket.id} joined game`);
     if (!games[gameId]) {
       socket.emit("wrongGameId");
       return;
@@ -103,15 +104,15 @@ io.on("connection", (socket) => {
       const winner = getWinnerId(games[gameId].player1Choice, games[gameId].player2Choice);
 
       // emit game result
-      let outcome1 = GameResult.Draw;
-      let outcome2 = GameResult.Draw;
+      let outcome1 = Outcome.Draw;
+      let outcome2 = Outcome.Draw;
       if (winner === 1) {
-        outcome1 = GameResult.Win;
-        outcome2 = GameResult.Loss;
+        outcome1 = Outcome.Win;
+        outcome2 = Outcome.Loss;
         games[gameId].player1Score++;
       } else if (winner === 2) {
-        outcome1 = GameResult.Loss;
-        outcome2 = GameResult.Win;
+        outcome1 = Outcome.Loss;
+        outcome2 = Outcome.Win;
         games[gameId].player2Score++;
       }
 
@@ -144,6 +145,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on('disconnect', () => {
+    console.log(`${socket.id} disconnected`);
+
     const gameId = playerGameId[socket.id];
     if (!gameId || !games[gameId]) return;
     const game = games[gameId];

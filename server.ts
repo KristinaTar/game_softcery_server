@@ -1,5 +1,4 @@
 import http from 'http'
-import { Server } from 'socket.io';
 import express from 'express';
 import cors from "cors";
 
@@ -16,7 +15,6 @@ class App {
     app.use(cors());
 
     this.server = new http.Server()
-    const io = new Server(this.server)
   }
 
   public Start() {

@@ -15,7 +15,7 @@ export type Game = {
   player2Score: number,
 }
 
-export enum GameResult {
+export enum Outcome {
   Win = 'win',
   Loss = 'loss',
   Draw = 'draw',
